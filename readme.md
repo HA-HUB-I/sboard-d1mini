@@ -7,6 +7,8 @@ You need to connect the D1 Mini's GPIO pins to the corresponding Sboard III term
 | `D6 (GPIO12)`   | `OPEN`          | Exit Button |
 | `D7 (GPIO13)`   | `ALARM-`        | Alarm Activation |
 | `D1 (GPIO5)`    | `BZ`            | Buzzer Control |
+| `d0 (GPIO0)`    | `D1`            | Reader pin  D1 |
+| `d1  (GPIO2)`   | `D0`            | Reader pin  D0  |
 
 ---
 
