@@ -1,0 +1,166 @@
+# Wiring Plan
+# Door Contact (D_IN on Sboard III) → Connect to a GPIO on the D1 Mini (e.g., GPIO14 or D5).
+# Exit Button (OPEN on Sboard III) → Connect to a GPIO on the D1 Mini (e.g., GPIO12 or D6).
+# Alarm (ALARM- on Sboard III) → Connect to a GPIO on the D1 Mini (e.g., GPIO13 or D7).
+# Buzzer Control (BZ on Sboard III) → Connect to a GPIO on the D1 Mini (e.g., GPIO5 or D1).
+
+
+esphome:
+  name: d1mini
+  friendly_name: D1mini
+
+esp8266:
+  board: d1_mini
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "((((((((((((((((((((()))))))))))))))))))))"
+
+ 
+
+ota:
+  platform: esphome
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "D1Mini Fallback Hotspot"
+    password: "wifipass"
+
+captive_portal:
+
+text_sensor:
+    - platform: template #rfid posleden skaniran tag
+      name: last_tag
+      id: rfid_tag
+      
+    - platform: template
+      name: Last User
+      id: last_user
+      icon: mdi:clock-start 
+
+sensor:
+
+  - platform: template
+    name: Keypad Code
+    id: keyCode
+    on_value:
+      - if:
+          condition:
+            - lambda: 'return id(keyCode).state == 6069317;' 
+          then:  
+            - light.toggle: status_led2
+            -  delay: 
+                3000ms 
+            - light.turn_off: status_led2  
+            - text_sensor.template.publish:
+                id: last_user
+                state: "GREEN Tag"    
+
+
+wiegand:
+  - id: mykeypad
+    d0: GPIO0 #GREEN TO TX
+    d1: GPIO2 #WHITE TO RX
+    on_tag:
+      - lambda: ESP_LOGI("TAG", "received tag %s", x.c_str());
+      - homeassistant.tag_scanned: !lambda 'return x.c_str();'
+      - text_sensor.template.publish:
+          id: rfid_tag
+          state: !lambda 'return x;'
+      - sensor.template.publish:
+         id: keyCode
+         state: !lambda "return parse_number<float>(x).value();"
+             
+      - homeassistant.event:
+          event: esphome.wiegand_key_code
+          data:
+            key_code: !lambda "return x;"  
+      #- lambda: |-
+       #   if (x == "6069317"); {            
+      #    id(led_lock).toggle();
+       #   }
+             
+light:
+  - platform: status_led
+    id: status_led2
+    name: "Switch state"
+    pin:
+     number: GPIO16
+     inverted: False
+     
+
+#interval:
+#  - interval: 800ms
+#    then:
+ #     - switch.toggle: led_lock     
+
+# switch:
+#   platform: template
+#   id: led_lock
+#   turn_on_action:
+#     - light.turn_on: status_led2
+
+# Door Contact Sensor
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: D5
+      mode: INPUT_PULLUP
+    name: "Door Contact"
+    device_class: door
+    filters:
+      - invert:
+    on_press:
+      then:
+        - logger.log: "Door Opened"
+    on_release:
+      then:
+        - logger.log: "Door Closed"
+
+# Exit Button
+  - platform: gpio
+    pin:
+      number: D6
+      mode: INPUT_PULLUP
+    name: "Exit Button"
+    on_press:
+      then:
+        - logger.log: "Exit Button Pressed"
+
+# Alarm Logger
+  - platform: gpio
+    pin:
+      number: D7
+      mode: INPUT_PULLUP
+    name: "Alarm Triggered"
+    device_class: safety
+    on_press:
+      then:
+        - logger.log: "Alarm Activated"
+
+  # Status LED (Optional)
+  - platform: status
+    name: "ESP Status"      
+
+# Buzzer Control
+switch:
+  - platform: gpio
+    pin: D1
+    name: "Buzzer"
+    restore_mode: ALWAYS_OFF
+    icon: "mdi:alarm-bell"
+
+
+
+  
+        
+         
