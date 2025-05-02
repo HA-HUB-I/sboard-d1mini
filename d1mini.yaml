@@ -7,18 +7,20 @@
 
 esphome:
   name: d1mini
-  friendly_name: D1mini
+  friendly_name: D1mini-Sboard
 
 esp8266:
   board: d1_mini
 
 # Enable logging
 logger:
+  baud_rate: 0
+
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: "((((((((((((((((((((()))))))))))))))))))))"
+    key: "/="
 
  
 
@@ -27,13 +29,13 @@ ota:
 
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  ssid: !secret door_ssid
+  password: !secret door_password
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "D1Mini Fallback Hotspot"
-    password: "wifipass"
+    ssid: "D1"
+    password: ""
 
 captive_portal:
 
@@ -48,54 +50,75 @@ text_sensor:
       icon: mdi:clock-start 
 
 sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Sensor"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Uptime Sensor"
+    id: uptime_sensor
 
   - platform: template
-    name: Keypad Code
-    id: keyCode
-    on_value:
-      - if:
-          condition:
-            - lambda: 'return id(keyCode).state == 6069317;' 
-          then:  
-            - light.toggle: status_led2
-            -  delay: 
-                3000ms 
-            - light.turn_off: status_led2  
-            - text_sensor.template.publish:
-                id: last_user
-                state: "GREEN Tag"    
+    name: "Uptime in Seconds"
+    lambda: |-
+      return id(uptime_sensor).state;
+    unit_of_measurement: "s"
+    update_interval: 60s
+
+  - platform: template
+    name: "Uptime in Minutes"
+    lambda: |-
+      return id(uptime_sensor).state / 60;
+    unit_of_measurement: "min"
+    update_interval: 60s
+
+#   - platform: template
+#     name: Keypad Code
+#     id: keyCode
+#     on_value:
+#       - if:
+#           condition:
+#             - lambda: 'return id(keyCode).state == 6069317;' 
+#           then:  
+#             - light.toggle: status_led2
+#             -  delay: 
+#                 3000ms 
+#             - light.turn_off: status_led2  
+#             - text_sensor.template.publish:
+#                 id: last_user
+#                 state: "GREEN Tag"    
 
 
 wiegand:
   - id: mykeypad
-    d0: GPIO0 #GREEN TO TX
-    d1: GPIO2 #WHITE TO RX
+    d0: GPIO3 # RX #GREEN TO TX 
+    d1: GPIO1 # TX #WHITE TO RX
     on_tag:
       - lambda: ESP_LOGI("TAG", "received tag %s", x.c_str());
       - homeassistant.tag_scanned: !lambda 'return x.c_str();'
-      - text_sensor.template.publish:
-          id: rfid_tag
-          state: !lambda 'return x;'
-      - sensor.template.publish:
-         id: keyCode
-         state: !lambda "return parse_number<float>(x).value();"
+      # - text_sensor.template.publish:
+      #     id: rfid_tag
+      #     state: !lambda 'return x;'
+      # - sensor.template.publish:
+      #    id: keyCode
+      #    state: !lambda "return parse_number<float>(x).value();"
              
-      - homeassistant.event:
-          event: esphome.wiegand_key_code
-          data:
-            key_code: !lambda "return x;"  
+      # - homeassistant.event:
+      #     event: esphome.wiegand_key_code
+      #     data:
+      #       key_code: !lambda "return x;"  
       #- lambda: |-
        #   if (x == "6069317"); {            
       #    id(led_lock).toggle();
        #   }
              
-light:
-  - platform: status_led
-    id: status_led2
-    name: "Switch state"
-    pin:
-     number: GPIO16
-     inverted: False
+# light:
+#   - platform: status_led
+#     id: status_led2
+#     name: "Switch state"
+#     pin:
+#      number: GPIO16
+#      inverted: False
      
 
 #interval:
@@ -109,6 +132,10 @@ light:
 #   turn_on_action:
 #     - light.turn_on: status_led2
 
+
+
+
+
 # Door Contact Sensor
 binary_sensor:
   - platform: gpio
@@ -117,8 +144,6 @@ binary_sensor:
       mode: INPUT_PULLUP
     name: "Door Contact"
     device_class: door
-    filters:
-      - invert:
     on_press:
       then:
         - logger.log: "Door Opened"
@@ -127,29 +152,59 @@ binary_sensor:
         - logger.log: "Door Closed"
 
 # Exit Button
-  - platform: gpio
-    pin:
-      number: D6
-      mode: INPUT_PULLUP
-    name: "Exit Button"
-    on_press:
-      then:
-        - logger.log: "Exit Button Pressed"
+  # - platform: gpio
+  #   pin:
+  #     number: D6
+  #     mode: INPUT_PULLUP
+  #   name: "Exit Button"
+  #   on_press:
+  #     then:
+  #       - logger.log: "Exit Button Pressed"
 
 # Alarm Logger
+  # - platform: gpio
+  #   pin:
+  #     number: D7
+  #     mode: INPUT_PULLUP
+  #   name: "Alarm Triggered"
+  #   device_class: safety
+  #   on_press:
+  #     then:
+  #       - logger.log: "Alarm Activated"
   - platform: gpio
     pin:
       number: D7
-      mode: INPUT_PULLUP
+      mode: INPUT_PULLUP  # Keeps it HIGH when inactive
     name: "Alarm Triggered"
     device_class: safety
+    filters:
+      - invert:  # Since it's active LOW, invert the signal
     on_press:
       then:
-        - logger.log: "Alarm Activated"
+        - logger.log: "⚠️ Alarm Activated!"
+    on_release:
+      then:
+        - logger.log: "✅ Alarm Cleared"
 
   # Status LED (Optional)
   - platform: status
-    name: "ESP Status"      
+    name: "ESP Status" 
+
+  #Intercom Unlock Signal
+  - platform: gpio
+    pin:
+      number: 16
+      # mode: INPUT_PULLUP
+    name: "Intercom Unlock Signal"
+    device_class: door
+    filters:
+      - invert:
+    on_press:
+      then:
+        - logger.log: "Unlock Signal Detected!"
+    on_release:
+      then:
+        - logger.log: "Unlock Signal Ended"        
 
 # Buzzer Control
 switch:
@@ -158,6 +213,45 @@ switch:
     name: "Buzzer"
     restore_mode: ALWAYS_OFF
     icon: "mdi:alarm-bell"
+
+# Exit button
+  - platform: gpio
+    pin:
+      number: D6
+      mode: OUTPUT_OPEN_DRAIN
+      inverted: yes  # Ensures it sends LOW when activated
+    name: "Exit Button"
+    icon: "mdi:exit-run"
+    on_turn_on:
+      - delay: 1s  # Keeps it LOW for 1 second
+      - switch.turn_off: exit_button
+    id: exit_button
+
+
+# sensor:
+#   - platform: adc
+#     pin: A0
+#     name: "Sboard III Unlock Voltage"
+#     update_interval: 1s
+#     filters:
+#       - lambda: |-
+#           if (x > 2.5) {  // Adjust based on actual voltage readings
+#             return 1.0;  // Unlocked
+#           } else {
+#             return 0.0;  // Locked
+#           }
+#     on_value:
+#       then:
+#         - if:
+#             condition:
+#               lambda: 'return x == 1.0;'
+#             then:
+#               - logger.log: "Door Unlocked from APP"
+#         - if:
+#             condition:
+#               lambda: 'return x == 0.0;'
+#             then:
+#               - logger.log: "Door Locked"
 
 
 
