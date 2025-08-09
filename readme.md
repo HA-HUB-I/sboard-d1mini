@@ -66,8 +66,7 @@
 
 ## 📸 Схема
 
-> ![door-controller](door-controller.jpeg)
-> ![rfid-reader](rfid.jpeg)
+> ![schema-1](schema-1.png)
 
 ---
 
