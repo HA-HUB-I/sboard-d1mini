@@ -36,7 +36,7 @@ wifi:
   # # Enable fallback hotspot (captive portal) in case wifi connection fails
   # ap:
   #   ssid: "D1 Fallback"
-  #   password: "123654789abv"
+  #   password: "123"
   # Бързо свързване - намалява времето за connection
   fast_connect: true
 
