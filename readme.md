@@ -5,7 +5,7 @@
 Изпращане (TX) на тагове към SBOARD III за програмиране
 
 Проект за **контрол на достъп** с [ESPHome](https://esphome.io/) и **D1 mini**,  
-поддържащ **двулентов RFID четец (125kHz + 13.56MHz)**, магнитен датчик за врата, и управление на електромагнитен насрещник (door strike).
+поддържащ **двулентов RFID четец (125kHz + 13.56MHz)** [Mini Dual Frequency Card Reader RFID 125kHz And 13.56MHz](https://de.aliexpress.com/item/1005003514311074.html?spm=a2g0o.order_detail.order_detail_item.3.29b4f19c1fVU7R&gatewayAdapt=glo2deu)., [магнитен датчик за врата] (https://de.aliexpress.com/item/1005006015697724.html?spm=a2g0o.order_list.order_list_main.80.21ef1802Dhy08c&gatewayAdapt=glo2deu), и управление на електромагнитен насрещник (door strike) през [SBOARD III](https://de.aliexpress.com/item/1005005818818441.html?spm=a2g0o.order_list.order_list_main.105.21ef1802Dhy08c&gatewayAdapt=glo2deu).
 
 
 ## 📌 Основни функции
