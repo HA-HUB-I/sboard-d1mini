@@ -4,22 +4,36 @@
 # Alarm (ALARM- on Sboard III) → Connect to a GPIO on the D1 Mini (e.g., GPIO13 or D7).
 # Buzzer Control (BZ on Sboard III) → Connect to a GPIO on the D1 Mini (e.g., GPIO5 or D1).
 # Intercom Opto D2	GPIO4 (HIGH/LOW)
+# ESPHOME 2026.2.4
 
 esphome:
   name: d1mini
   friendly_name: D1mini-Sboard
+  # Wiegand компонентът сам инициализира GPIO3 и GPIO1 като INPUT при старт
+  # on_boot:
+  #   priority: 600  # След GPIO init, преди Wiegand
+  #   then:
+  #     - lambda: |-
+  #         // Задай GPIO3 и GPIO1 в INPUT режим за безопасен старт
+  #         pinMode(3, INPUT);
+  #         pinMode(1, INPUT);
+  #         ESP_LOGI("BOOT", "GPIO initialized for RX mode");
+  #     - delay: 500ms
 
 esp8266:
   board: d1_mini
+  enable_serial: true # Принудително включва Serial обекта
 
 # Enable logging
 logger:
   baud_rate: 0
+  hardware_uart: UART0_SWAP # Премества логера на GPIO15/GPIO13
+  level: WARN
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: "KEY"
+    key: !secret d1_mini_api
   # Reboot при загуба на API връзка
   reboot_timeout: 0s # Изключваме автоматичния restart
 
@@ -36,7 +50,7 @@ wifi:
   # # Enable fallback hotspot (captive portal) in case wifi connection fails
   # ap:
   #   ssid: "D1 Fallback"
-  #   password: "123"
+  #   password: "123654789abv"
   # Бързо свързване - намалява времето за connection
   fast_connect: true
 
@@ -48,7 +62,7 @@ wifi:
 
   # Manual IP за по-бързо свързване (опционално)
   manual_ip:
-    static_ip: 192.168.1.8
+    static_ip: 192.168.1.58
     gateway: 192.168.1.1
     subnet: 255.255.255.0
     dns1: 8.8.8.8
@@ -134,6 +148,7 @@ text_sensor:
   - platform: template
     name: "Last Tag Full Info"
     id: last_tag_full_info
+
   # Status сензори
   - platform: template
     name: "Wiegand Mode"
@@ -146,6 +161,15 @@ text_sensor:
       } else {
         return {"RX"};
       }
+  - platform: template
+    name: "Current Mode"
+    id: mode_sensor
+    update_interval: 2s
+    icon: mdi:swap-horizontal
+    lambda: |-
+      if (id(wiegand_mode)) return {"TX (Transmit)"};
+      if (id(mode_switching)) return {"Switching..."};
+      return {"RX (Receive)"};
 
 sensor:
   - platform: wifi_signal
@@ -176,6 +200,12 @@ sensor:
     accuracy_decimals: 0
 
   - platform: template
+    name: "Last Tag ID"
+    id: last_tag_sensor
+    accuracy_decimals: 0
+    icon: mdi:tag
+
+  - platform: template
     name: "Last Tag Hex"
     id: last_tag_hex
     accuracy_decimals: 0
@@ -184,13 +214,18 @@ sensor:
     name: "Last Facility Code"
     id: last_facility_sensor
     accuracy_decimals: 0
+    icon: mdi:office-building
 
   - platform: template
     name: "Last Card Number"
     id: last_card_sensor
     accuracy_decimals: 0
+    icon: mdi:credit-card
 
 # Wiegand четене с пълна информация
+# ═══════════════════════════════════════════════════
+# WIEGAND READING (RX MODE)
+# ═══════════════════════════════════════════════════
 wiegand:
   - id: mykeypad
     d0: GPIO3
@@ -201,46 +236,39 @@ wiegand:
             lambda: "return !id(mode_switching) && !id(wiegand_mode);"
           then:
             - lambda: |-
-                // Конвертирай в число
-                uint32_t raw_tag = strtoul(x.c_str(), NULL, 10);
+                uint32_t raw = strtoul(x.c_str(), NULL, 10);
+                id(last_tag_raw) = raw;
 
-                // Binary string
-                char binary[33];
-                for (int i = 25; i >= 0; i--) {
-                  binary[25-i] = (raw_tag & (1UL << i)) ? '1' : '0';
-                }
-                binary[26] = '\0';
+                uint8_t facility = (raw >> 16) & 0xFF;
+                uint16_t card = raw & 0xFFFF;
 
-                // Декодирай 26-bit Wiegand
-                bool even_parity = (raw_tag >> 25) & 1;
-                bool odd_parity = raw_tag & 1;
-                uint32_t payload = (raw_tag >> 1) & 0xFFFFFF;
-
-                uint8_t facility = (payload >> 16) & 0xFF;
-                uint16_t card = payload & 0xFFFF;
-
-                // Запази в globals
-                id(facility_code) = facility;
-                id(card_number) = card;
-                id(tag_to_send) = raw_tag;
-
-                // Публикувай към HA
-                id(last_tag_decimal).publish_state(raw_tag);
-                id(last_tag_hex).publish_state(raw_tag);
+                // ← ВАЖНО: Публикувай ВСИЧКИ сензори!
+                id(last_tag_sensor).publish_state(raw);
+                id(last_tag_decimal).publish_state(raw);
+                id(last_tag_hex).publish_state(raw);
                 id(last_facility_sensor).publish_state(facility);
                 id(last_card_sensor).publish_state(card);
+
+                // Text сензори
+                id(rfid_tag).publish_state(String(raw).c_str());
+
+                // Binary представяне
+                char binary[27];
+                for (int i = 25; i >= 0; i--) {
+                  binary[25-i] = (raw & (1UL << i)) ? '1' : '0';
+                }
+                binary[26] = '\0';
                 id(last_tag_binary).publish_state(binary);
 
-                // Full info string
+                // Full info
                 char info[128];
                 snprintf(info, sizeof(info), 
-                         "Dec:%lu Hex:0x%06X FC:%d CN:%d EP:%d OP:%d",
-                         raw_tag, raw_tag, facility, card, even_parity, odd_parity);
+                         "Tag:%lu FC:%d CN:%d",
+                         raw, facility, card);
                 id(last_tag_full_info).publish_state(info);
 
-                ESP_LOGI("TAG", "Scanned: FC=%d CN=%d", facility, card);
+                ESP_LOGI("SCAN", "✅ Tag: %lu | FC:%d CN:%d", raw, facility, card);
 
-            # Изпрати към HA tag_scanned event
             - homeassistant.tag_scanned: !lambda "return x.c_str();"
 
 # Door Contact Sensor
@@ -248,6 +276,7 @@ binary_sensor:
   - platform: template
     name: "TX Active"
     lambda: "return id(wiegand_mode);"
+    icon: mdi:transmit
 
   - platform: gpio
     pin:
@@ -325,19 +354,32 @@ globals:
     type: bool
     initial_value: "false"
     restore_value: no
+
   - id: mode_switching
     type: bool
     initial_value: "false"
     restore_value: no
+
+  - id: last_tag_raw
+    type: uint32_t
+    initial_value: "0"
+    restore_value: no
+
   - id: tag_to_send
     type: uint32_t
     initial_value: "0"
     restore_value: no
+
   - id: facility_code
     type: uint8_t
     initial_value: "0"
     restore_value: no
+
   - id: card_number
+    type: uint32_t
+    initial_value: "0"
+    restore_value: no
+  - id: raw_bits
     type: uint32_t
     initial_value: "0"
     restore_value: no
@@ -352,10 +394,10 @@ number:
     step: 1
     mode: box
     optimistic: true
+    icon: mdi:numeric
+    # При промяна запази в last_tag_raw
     on_value:
-      - globals.set:
-          id: tag_to_send
-          value: !lambda "return (uint32_t)x;"
+      - lambda: "id(last_tag_raw) = (uint32_t)x;"
   # Input за Facility Code и Card Number
   - platform: template
     name: "Facility Code"
@@ -403,62 +445,69 @@ switch:
       - switch.turn_off: exit_button
     id: exit_button
 
-  # Превключвател TX/RX режим
+  # ═══════════════════════════════════════════════════
+  # TX/RX MODE SWITCH
+  # ═══════════════════════════════════════════════════
   - platform: template
-    name: "Wiegand TX Mode"
+    name: "TX Mode"
     id: tx_mode_switch
     restore_mode: ALWAYS_OFF
     optimistic: true
+    icon: mdi:swap-horizontal
+
     turn_on_action:
-      - logger.log: "Switching to TX mode..."
+      - logger.log: "→ Switching to TX mode..."
       - globals.set:
           id: mode_switching
           value: "true"
-      - delay: 200ms
+      - delay: 300ms
+
       - lambda: |-
-          // Спри interrupt-ите
           detachInterrupt(digitalPinToInterrupt(3));
           detachInterrupt(digitalPinToInterrupt(1));
-
-          // Превключи в OUTPUT
           pinMode(3, OUTPUT);
           pinMode(1, OUTPUT);
           digitalWrite(3, HIGH);
           digitalWrite(1, HIGH);
+          ESP_LOGI("MODE", "TX mode active");
 
-          ESP_LOGI("WIEGAND", "TX mode activated");
-      - delay: 100ms
+      - delay: 200ms
       - globals.set:
           id: mode_switching
           value: "false"
       - globals.set:
           id: wiegand_mode
           value: "true"
-      # Watchdog - автоматично изключване
-      - delay: 30s
+
+      # Watchdog - auto turn off after 60s
+      - delay: 60s
       - if:
           condition:
             switch.is_on: tx_mode_switch
           then:
             - logger.log:
                 level: WARN
-                format: "TX timeout! Auto-switching to RX"
+                format: "⚠ TX timeout - returning to RX"
             - switch.turn_off: tx_mode_switch
 
     turn_off_action:
-      - logger.log: "Switching to RX mode..."
+      - logger.log: "→ Switching to RX mode..."
       - globals.set:
           id: wiegand_mode
           value: "false"
+      - globals.set:
+          id: mode_switching
+          value: "true"
+
       - lambda: |-
-          // Върни в INPUT
           digitalWrite(3, HIGH);
           digitalWrite(1, HIGH);
           pinMode(3, INPUT);
           pinMode(1, INPUT);
+          ESP_LOGI("MODE", "RX mode active");
 
-          ESP_LOGI("WIEGAND", "RX mode activated");
-      - delay: 500ms
+      # ВАЖНО: По-дълго изчакване за реинициализация
+      - delay: 2s
       - globals.set:
           id: mode_switching
           value: "false"
@@ -470,8 +519,9 @@ button:
 
   # Бутон за изпращане
   - platform: template
-    name: "Send Tag to SBOARD"
-    id: send_tag_to_sboard
+    name: "Send Tag"
+    id: send_tag_button
+    icon: mdi:send
     on_press:
       - if:
           condition:
@@ -479,17 +529,41 @@ button:
           then:
             - logger.log:
                 level: ERROR
-                format: "ERROR: Switch to TX mode first!"
+                format: "❌ Error: Switch to TX mode first!"
           else:
             - lambda: |-
-                uint32_t code = id(tag_to_send);
-                uint8_t bits = 26;
+                uint32_t raw = id(last_tag_raw);
 
-                ESP_LOGI("WIEGAND_TX", "Sending tag: %lu", code);
+                if (raw == 0) {
+                  ESP_LOGE("SEND", "❌ No tag to send! Scan a tag or enter Tag ID.");
+                  return;
+                }
 
-                // Wiegand изпращане
-                for (int i = bits - 1; i >= 0; i--) {
-                  bool bit = (code >> i) & 1;
+                // Calculate parity
+                uint8_t even_count = 0;
+                for (int i = 23; i >= 12; i--) {
+                  if (raw & (1UL << i)) even_count++;
+                }
+                uint8_t even_parity = (even_count % 2);
+
+                uint8_t odd_count = 0;
+                for (int i = 11; i >= 0; i--) {
+                  if (raw & (1UL << i)) odd_count++;
+                }
+                uint8_t odd_parity = !(odd_count % 2);
+
+                // Build full 26-bit
+                uint32_t full = (even_parity << 25) | (raw << 1) | odd_parity;
+
+                uint8_t facility = (raw >> 16) & 0xFF;
+                uint16_t card = raw & 0xFFFF;
+
+                ESP_LOGI("SEND", "📤 Sending tag: %lu", raw);
+                ESP_LOGI("SEND", "   FC:%d CN:%d | EP:%d OP:%d", facility, card, even_parity, odd_parity);
+
+                // Send 26 bits
+                for (int i = 25; i >= 0; i--) {
+                  bool bit = (full >> i) & 1;
                   
                   if (bit) {
                     digitalWrite(1, LOW);
@@ -504,7 +578,8 @@ button:
                   delayMicroseconds(2000);
                 }
 
-                ESP_LOGI("WIEGAND_TX", "Tag sent!");
+                ESP_LOGI("SEND", "✅ Tag sent successfully!");
+
   # Бутон с правилна конверсия
   - platform: template
     name: "Send Tag (26-bit Wiegand)"
@@ -587,12 +662,3 @@ button:
 
                 ESP_LOGI("WIEGAND_TX", "26-bit tag sent!");
                 ESP_LOGI("WIEGAND_TX", "================================");
-  # Бърз тест
-  - platform: template
-    name: "Quick Test"
-    on_press:
-      - switch.turn_on: tx_mode_switch
-      - delay: 1s
-      - button.press: send_tag_to_sboard
-      - delay: 3s
-      - switch.turn_off: tx_mode_switch
